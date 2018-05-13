@@ -4,19 +4,28 @@ require (APPPATH . '/libraries/REST_Controller.php');
 require (APPPATH . '/libraries/Certificados.php');
 
 class Api extends REST_Controller {
-	private $certificado;
+	private $rfc;
+	private $pass;
+	private $path_keyFile;
+	private $path_cerFile;
+	private $path_cerPemFile;
+	private $path_keyPemFile;
+	private $dataCert = [
+		"serial" => null,
+		"fecha_inicio" => null,
+		"fecha_vigencia" => null,
+		"certificate" => null,
+		"private_key" => null,
+		"rfc" => null,
+		"pass" => null
+	];
 
 	public function __construct() {
         parent::__construct();
 		$this->load->model('certificado_model');
 		$this->load->library(['ftp','certificados','form_validation']);
-		$this->load->helper('url');
+		$this->load->helper(['url', 'file']);
     }
-
-	public function index()
-	{
-		return "Hol";	
-	}
 
 	private function setResponse($success, $error = null, $certificate_pem = null, $private_key = null){
 		if ($success) {
@@ -36,54 +45,60 @@ class Api extends REST_Controller {
 
 	public function certificado_post()
     {
-        // Para crear un recurso
         if ($this->validateInput()) {
-        	$rfc = $this->post("rfc");
-        	$pass = $this->post("password");
-	        $certificate = $this->upload_file("certificate", $rfc);
-	        $key = $this->upload_file("private_key", $rfc);
-
+        	$this->rfc = $this->post("rfc");
+        	$this->pass = $this->post("password");
+	        $certificate = $this->upload_file("certificate");
+	        $key = $this->upload_file("private_key");
+	        $this->dataCert['rfc'] = $this->rfc;
+	        $this->dataCert['pass'] = $this->pass;
 	        
 	        if (array_key_exists('success', $certificate) && array_key_exists('success', $key)) {
-	        	$keyPem = $this->checkCertificate($certificate['success']['file_name'], $key['success']['file_name'], $pass, $rfc);
-	        	if ($keyPem['result']) {
-	        		$respuesta = "Archivo generado con exito";
-	        		$this->setResponse(true, null,null, $respuesta);
+	        	$this->dataCert['certificate'] = $certificate['success']['file_name'];
+	        	$this->dataCert['private_key'] = $key['success']['file_name'];
+	        	$keyPem = $this->checkCertificate($this->dataCert['certificate'],$this->dataCert['private_key'] );
+	        	if ($keyPem['result']) {	        		
+	        		$certificateContent = $this->getContentFile($this->path_cerPemFile);
+	        		$keyContent = $this->getContentFile($this->path_keyPemFile);
+	        		$certificado_nuevo = $this->certificado_model->agregar_certificado($this->dataCert);
+	        		if($certificado_nuevo === false){
+	        			if ($this->removeDirectory()) {
+		        			$respuesta = "Ocurrio un error al registrar el certificado.";
+				            $this->setResponse(false, $respuesta);
+	        			}else{
+	        				$respuesta = "Ocurrio un error al eliminar los archivos.";
+	        				$this->setResponse(false, $respuesta);
+	        			}	        			
+			        }else{
+			        	$this->setResponse(true, null,$certificateContent, $keyContent);
+			        }	        		
 	        	}else{
-	        		$respuesta = $keyPem['error'];
-	        		$this->setResponse(false, $respuesta);
+	        		if ($this->removeDirectory()) {
+	        			$respuesta = $keyPem['error'];
+	        			$this->setResponse(false, $respuesta);
+	        		} else {
+	        			$respuesta = "Ocurrio un error al eliminar los archivos.";
+	        			$this->setResponse(false, $respuesta);
+	        		}	
 	        	}	        	
 	        } else {
 	        	$respuesta ="Ocurrio un error al procesar los archivos.";
 	            $this->setResponse(false, $respuesta);
-	        }
-	        
-	        /*
-	        $certificado_nuevo = $this->certificado_model->agregar_certificado($this->post("rfc"),$this->post("certificate"),$this->post("private_key"), $this->post("password"));
-	        if($certificado_nuevo === false){
-	            $this->response(500);
-	        }else{
-	        	$respuesta = [
-	        		"success" => true,
-	        		"certificate_pem" => "Hola",
-	        		"private_key" => "Hola"
-	        	];
-	            $this->response($respuesta, 200);
-	        }*/	
+	        }	        	        
         }else{
         	$respuesta = $this->form_validation->error_array();
             $this->setResponse(false, $respuesta);
         }     
     }
 
-    public function upload_file($file, $rfc)
+    public function upload_file($file)
     {             
     	$resultado = null;          
-    	$config['upload_path'] = './uploads/'. $rfc;
+    	$config['upload_path'] = './uploads/'. $this->rfc;
 		$config['allowed_types'] = '*';
 		$this->load->library('upload', $config);
 
-		$directorio = $this->createDirectoy($rfc);
+		$directorio = $this->createDirectoy();
 		if ($directorio) {
 			if ( ! $this->upload->do_upload($file)){
 	                $error = array('error' => $this->upload->display_errors());
@@ -96,14 +111,24 @@ class Api extends REST_Controller {
 		return $resultado;
     }
 
-    private function createDirectoy($rfc){
+    private function createDirectoy(){
     	$resultado = false;
-    	if (!is_dir('uploads/'.$rfc)) {
-    		$resultado = mkdir('./uploads/' . $rfc, 0777, TRUE);
+    	if (!is_dir('uploads/'.$this->rfc)) {
+    		$resultado = mkdir('./uploads/' . $this->rfc, 0777, TRUE);
     	}else{
     		$resultado = true;
     	}
     	return $resultado;
+    }
+
+    private function removeDirectory(){
+    	$elimina = delete_files('./uploads/' . $this->rfc, true);
+    	if ($elimina) {
+    		$resultado = rmdir('./uploads/' . $this->rfc);  
+    	}else{
+    		$resultado = false;  
+    	}	    	  	
+    	return $resultado;    	
     }
 
     private function validateInput(){
@@ -167,51 +192,85 @@ class Api extends REST_Controller {
 		$this->certificados();	
 	}
 
-	private function checkCertificate($filePem, $fileKey, $pass, $rfc){
-		$pathKey = "uploads/".$rfc."/".$fileKey;
-		$pathCer = "uploads/".$rfc."/".$filePem;
-		$resultado = $this->certificados->generaKeyPem($pathKey, $pass);
+	private function checkCertificate($fileCer, $fileKey){
+		$this->path_keyFile = "uploads/".$this->rfc."/".$fileKey;
+		$this->path_cerFile = "uploads/".$this->rfc."/".$fileCer;	
+		$resultado = $this->certificados->generaKeyPem($this->path_keyFile, $this->pass);	
 		if($resultado['result']) {
-			$resultado = $this->getCerPemFile($pathCer);					
+			$this->path_keyPemFile = $this->path_keyFile.".pem";
+			$resultado = $this->getCerPemFile();					
 		}
 		return $resultado;			
 	}
 
-	private function getCerPemFile($fileCer){
-		$resultado = $this->certificados->generaCerPem($fileCer);
+	private function getCerPemFile(){
+		$resultado = $this->certificados->generaCerPem($this->path_cerFile);
 		if ($resultado['result']) {
-			$this->getPair();
+			$this->path_cerPemFile = $this->path_cerFile.".pem";
+			$resultado = $this->getPair();
 		}		
 		return $resultado;	
 	}
 
-	private function getSerialCert($nombreCerPem){
-		$resultado = $this->certificados->getSerialCert($nombreCerPem);
+	private function getPair(){
+		$resultado = $this->certificados->pareja($this->path_cerPemFile, $this->path_keyPemFile);
+		if ($resultado['result']) {
+			$resultado = $this->validateCert();
+		}
 		return $resultado;
 	}
 
-	private function getFechaIniCert($nombreCerPem){
-		$resultado = $this->certificados->getFechaInicio($nombreCerPem);
+	private function validateCert(){
+		$resultado = $this->certificados->validarCertificado($this->path_cerPemFile);
+		if ($resultado['result']) {
+			$resultado = $this->getSerialCert();
+		}
 		return $resultado;
 	}
 
-	private function getFechaVigCert($nombreCerPem){
-		$resultado = $this->certificados->getFechaVigencia($nombreCerPem);
+	private function getSerialCert(){
+		$resultado = $this->certificados->getSerialCert($this->path_cerPemFile);
+		if ($resultado['result']) {
+			$this->dataCert['serial'] = $resultado['serial'];
+			$resultado = $this->getFechaIniCert();
+		}
 		return $resultado;
 	}
 
-	private function validateCert($nombreCerPem){
-		$resultado = $this->certificados->validarCertificado($nombreCerPem);
+	private function getFechaIniCert(){
+		$resultado = $this->certificados->getFechaInicio($this->path_cerPemFile);
+		if ($resultado['result']) {
+			$this->dataCert['fecha_inicio'] = $resultado['fecha'];
+			$resultado = $this->getFechaVigCert();
+		}
 		return $resultado;
 	}
 
-	private function getPair($nombreCerPem, $nombreKeyPem, $rfc){
-		$pathCer = "uploads/".$rfc."/".$nombreCerPem;
-		$pathKey = "uploads/".$rfc."/".$nombreKeyPem;
-		$resultado = $this->certificados->pareja($pathCer, $pathKey);
+	private function getFechaVigCert(){
+		$resultado = $this->certificados->getFechaVigencia($this->path_cerPemFile);
+		if ($resultado['result']) {
+			$this->dataCert['fecha_vigencia'] = $resultado['fecha'];
+			$resultado = $this->validateRFC();
+		}
+		return $resultado;
 	}
 
+	private function validateRFC(){
+		$resultado = $this->certificados->getRFCCert($this->path_cerPemFile);
+		if ($resultado['result']) {
+			if ($resultado['rfc'] === $this->rfc) {
+				$resultado = ['result' => 1];
+			}else{
+				$resultado = ['result' => 0, 'error' => 'El RFC no corresponde al certificado'];
+			}
+		}
+		return $resultado;
+	}
 
+	private function getContentFile($file){
+		$file = file_get_contents($file);
+		return $file;
+	}
 }
 
 /* End of file Api.php */

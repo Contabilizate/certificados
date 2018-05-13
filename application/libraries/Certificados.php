@@ -147,7 +147,7 @@ class Certificados{
 				$this->_estableceError(1, null, array('serial' => $serial));
 				return $this->_return;
 			}else {
-				$this->_estableceError(0, 'No se logro obtener el seria del certificado');
+				$this->_estableceError(0, 'No se logro obtener el serial del certificado');
 				return $this->_return;
 			}
 		}else {
@@ -222,6 +222,37 @@ class Certificados{
 		
 	}
 
+	function getRFCCert($nombreCerPem = null){
+		
+		if($nombreCerPem == null){
+			if($this->_cerPem != null){
+				$nombreCerPem = $this->_cerPem;
+			}else {
+				$nombreCerPem = $this->_path.'desconocido.ccg';
+			}
+		}else {
+			$nombreCerPem = $this->_path.$nombreCerPem;
+		}
+		
+		if (file_exists($nombreCerPem)){
+			$salida = shell_exec('openssl x509 -in '.$nombreCerPem.' -subject -noout');
+			
+			if (strpos($salida, 'UniqueIdentifier=') !== false){
+				$salida = explode("/", $salida);				
+				$salida = str_replace('x500UniqueIdentifier=', '', $salida[4]);
+				$rfc = trim($salida);			
+				$this->_estableceError(1, null, array('rfc' => $rfc));
+				return $this->_return;
+			}else {
+				$this->_estableceError(0, 'No se logro obtener el rfc del certificado');
+				return $this->_return;
+			}
+		}else {
+			$this->_estableceError(0, 'El archivo requerido no esta disponible');
+			return $this->_return;
+		}
+	}
+
 	function validarCertificado($nombreCerPem = null){
 		if($nombreCerPem == null){
 			if($this->_cerPem != null){
@@ -270,7 +301,6 @@ class Certificados{
 		
 		if (file_exists($nombreCerPem) && file_exists($nombreKeyPem)){
 			$salidaCer = shell_exec('openssl x509 -noout -modulus -in '.$nombreCerPem.' 2>&1');
-			var_dump($salidaCer);
 			$salidaKey = shell_exec('openssl rsa -noout -modulus -in '.$nombreKeyPem.' 2>&1');
 			if($salidaCer == $salidaKey){
 				$this->_estableceError(1);

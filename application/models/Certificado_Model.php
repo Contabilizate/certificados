@@ -8,14 +8,25 @@
 		$this->load->database();
 	}
  	
- 	public function agregar_certificado($rfc, $certificate, $private_key, $password){
- 		$data = array(
-    		"rfc" =>  $rfc,
-			"certificate"	 =>  $certificate,
-			"private_key" =>  $private_key,
-			"password" => $password
-    	);
- 		var_dump($data);
+ 	public function agregar_certificado($data){
+ 		$fecha_inicio = $this->getDateTimeFormat($data['fecha_inicio']);
+ 		$fecha_vigencia = $this->getDateTimeFormat($data['fecha_vigencia']);
+ 		$info = [
+    		"rfc" =>  $data['rfc'],
+			"certificate" => $data['certificate'],
+			"private_key" => $data['private_key'],
+			"serial" => $data['serial'],
+			"fecha_inicio" => $fecha_inicio,
+			"fecha_vigencia" => $fecha_vigencia,
+			"password" => $data['pass'],
+			"created_at" => date('Y-m-d H:i:s')
+    	];
+ 		return $this->db->insert('certificados', $info);
+ 	}
+
+ 	private function getDateTimeFormat($fecha){
+ 		$resultado = date('Y-m-d H:i:s', strtotime($fecha));
+ 		return $resultado;
  	}
  
  }
