@@ -45,6 +45,7 @@ class Api extends REST_Controller {
 
 	public function certificado_post()
     {
+        // Para crear un recurso
         if ($this->validateInput()) {
         	$this->rfc = $this->post("rfc");
         	$this->pass = $this->post("password");
